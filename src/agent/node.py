@@ -1,88 +1,73 @@
-from agent.llm import supervisor_llm
-from agent.state import AgentState, FILE_BY_AGENT, MAX_RETRY
-from agent.system_prompt import SUPERVISOR_PROMPT
+from agent.state import AgentState, Task, FILE_BY_AGENT, PIPELINE, MAX_RETRY
 
 
 def supervisor_node(state: AgentState) -> dict:
-    decision = supervisor_llm.invoke(SUPERVISOR_PROMPT.format(
-        input_files=", ".join(state.input_files) or "(无)",
-        files=", ".join(state.files.keys()) or "(空)",
-        tasks="\n".join(f"{t.id}|{t.assigned_to}|{t.status}|{t.description}" for t in state.tasks) or "(无)",
-        user_request=state.user_request,
-    ))
+    """代码路由：按流水线顺序找第一个产物缺失的环节派发；产物齐全则 FINISH。
+    监督完全基于 files（唯一真相来源），不依赖 LLM。"""
+    files = dict(state.files)
+    tasks = list(state.tasks)
 
-    task_updates = getattr(decision, "task_updates", []) or []
-    new_tasks = getattr(decision, "new_tasks", []) or []
+    # ── 首次进入：创建 ingestion 任务（幂等）──
+    if not any(t.assigned_to == "ingestion" for t in tasks):
+        tasks.append(Task(
+            id="task_ingest_001",
+            description=f"解析 {', '.join(state.input_files)} 并生成 raw_report.txt",
+            assigned_to="ingestion",
+        ))
 
-    task_ids = {t.id: t for t in state.tasks}
-    for t in task_updates:
-        if t.id in task_ids:
-            expected = FILE_BY_AGENT.get(t.assigned_to)
-            if t.status == "pending" and expected and expected not in state.files:
-                rc = task_ids[t.id].retry_count + 1
-                t = t.model_copy(update={
-                    "retry_count": rc,
-                    "status": "failed" if rc >= MAX_RETRY else "pending",
-                })
-                print(f"⚠️ 任务 {t.id} 产物 {expected} 缺失，重试 {rc}/{MAX_RETRY}")
-            else:
-                t.retry_count = task_ids[t.id].retry_count + 1
-                if t.status == "pending" and t.retry_count >= MAX_RETRY:
-                    t.status = "failed"
-                    print(f"⚠️ 任务 {t.id} 重试超限，标记 failed")
-        task_ids[t.id] = t
-    for t in new_tasks:
-        if t.id not in task_ids:
-            task_ids[t.id] = t
+    # ── 产物出现即 done（顺手校正任务状态）──
+    for i, t in enumerate(tasks):
+        expected = FILE_BY_AGENT.get(t.assigned_to)
+        if expected and expected in files and t.status == "pending":
+            tasks[i] = t.model_copy(update={"status": "done"})
+            print(f"✅ 任务 {t.id} 已确认完成（产物 {expected}）")
 
-    files_override = None
+    # ── 路由：流水线顺序找第一个缺失环节 ──
+    next_agent, reason = "FINISH", "全部产物已生成"
+    for stage in PIPELINE:
+        if FILE_BY_AGENT[stage] not in files:
+            next_agent, reason = stage, f"产物 {FILE_BY_AGENT[stage]} 缺失"
+            break
 
-    if decision.next_agent in FILE_BY_AGENT:
-        f = FILE_BY_AGENT[decision.next_agent]
+    # ── 打回循环：review 已存在且结论为打回 ──
+    files_changed = False
+    if next_agent == "writer" and "notes/review.md" in files \
+            and "打回" in files["notes/review.md"][:200]:
+        print("⚠️ review 结论为打回，清空 quant/qualitative/review 产物，重做")
+        files = {k: v for k, v in files.items()
+                 if k not in ("notes/quant.md", "notes/qualitative.md", "notes/review.md")}
+        files_changed = True
+        for i, t in enumerate(tasks):
+            if t.assigned_to in ("quant", "qualitative") and t.status != "pending":
+                if t.retry_count < MAX_RETRY:
+                    tasks[i] = t.model_copy(update={"status": "pending"})
+        next_agent, reason = "quant", "review 打回，重做分析"
 
-        if f in state.files:
-            if decision.next_agent == "reviewer":
-                review = state.files.get(f, "")
-                if "打回" in review[:200]:
-                    print("⚠️ review 结论为打回，重置 quant/qualitative 产物")
-                    files_override = {k: v for k, v in state.files.items()
-                                      if not k.startswith("notes/quant")
-                                      and not k.startswith("notes/qualitative")
-                                      and k != "notes/review.md"}
-                    for t in task_ids.values():
-                        if t.assigned_to in ("quant", "qualitative") \
-                                and t.status != "pending" and t.retry_count < MAX_RETRY:
-                            t.status = "pending"
-                    decision.next_agent = "quant"
-                    decision.reason = "review 打回，重做 quant"
-                    print(f"    [state] 清除产物后 files={list(files_override.keys())}")
+    # ── 失败计数与终止：本次要派的环节，其 pending 任务计一次派发 ──
+    if next_agent != "FINISH":
+        for i, t in enumerate(tasks):
+            if t.assigned_to == next_agent and t.status == "pending":
+                rc = t.retry_count + 1
+                if rc > MAX_RETRY:
+                    tasks[i] = t.model_copy(update={"status": "failed"})
+                    print(f"❌ 任务 {t.id} 重试超限，标记 failed，终止流程")
+                    next_agent, reason = "FINISH", "任务失败超限"
                 else:
-                    decision.next_agent = "writer"
-                    decision.reason = "review 已通过，派 writer"
-                    print("⚠️ review 已通过，强制派 writer")
-            else:
-                print(f"⚠️ 拦截重派 {decision.next_agent}（产物 {f} 已存在）")
-                if "final_report.md" in state.files:
-                    decision.next_agent = "FINISH"
-                else:
-                    decision.next_agent = "writer"
-                decision.reason = f"拦截重派，改派 {decision.next_agent}"
+                    tasks[i] = t.model_copy(update={"retry_count": rc})
 
-    if "final_report.md" in state.files:
-        decision.next_agent = "FINISH"
-        decision.reason = "final_report.md 已生成，强制结束"
+    # ── 迭代上限兜底 ──
+    if state.iteration + 1 >= state.max_iterations:
+        print(f"⚠️ 达到迭代上限 {state.max_iterations}，终止")
+        next_agent, reason = "FINISH", "迭代超限"
 
-    print(f"[Supervisor #{state.iteration}] → {decision.next_agent} | {decision.reason}")
-    print(f"    [state] files={list(state.files.keys())} "
-          f"tasks={[(t.id, t.assigned_to, t.status) for t in task_ids.values()]}")
+    print(f"[Supervisor #{state.iteration}] → {next_agent} | {reason}")
+    print(f"    [state] files={list(files.keys())} "
+          f"tasks={[(t.id, t.assigned_to, t.status) for t in tasks]}")
 
-    ret = {
-        "next_agent": decision.next_agent,
-        "tasks": list(task_ids.values()),
-        "iteration": state.iteration + 1,
-    }
-    if files_override is not None:
-        ret["files"] = files_override
+    ret = {"next_agent": next_agent, "tasks": tasks,
+           "iteration": state.iteration + 1}
+    if files_changed:
+        ret["files"] = files
     return ret
 
 
@@ -98,7 +83,7 @@ def worker_node(agent_name: str, agent):
             f"=== 文件: {k} ===\n{v[:12000]}"
             for k, v in workspace.items()
         ) or "(空)"
-
+        print(f">>> This is agent {agent_name}\n")
         result = agent.invoke({"messages": [("user",
             f"用户需求: {state.user_request}\n"
             f"输入文件: {', '.join(state.input_files)}\n"
@@ -117,8 +102,10 @@ def worker_node(agent_name: str, agent):
                     if not path.startswith("/") and ".." not in path:
                         new_files[path] = content
                         print(f"📝 落盘 {path}（{len(content)} 字符）")
+                    else:
+                        print(f"⚠️ 已拦截非法路径写入: {path}")
 
-        # 产物出现即 done
+        # 产物出现即 done；缺失则保持 pending（supervisor 将重派）
         expected = FILE_BY_AGENT.get(agent_name)
         tasks = []
         for t in state.tasks:
@@ -126,6 +113,10 @@ def worker_node(agent_name: str, agent):
                     and expected and expected in new_files):
                 tasks.append(t.model_copy(update={"status": "done"}))
                 print(f"✅ 任务 {t.id} 完成（产物 {expected}）")
+            elif t.assigned_to == agent_name and t.status == "pending" \
+                    and expected and expected not in new_files:
+                print(f"⚠️ 任务 {t.id} 未交付产物 {expected}，保持 pending 等待重派")
+                tasks.append(t)
             else:
                 tasks.append(t)
 

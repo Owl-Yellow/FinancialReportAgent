@@ -13,6 +13,7 @@ qwen_model = ChatQwen(
     api_key=os.getenv("DASHSCOPE_API_KEY"),
     base_url=os.getenv("DASHSCOPE_BASE_URL"),
     model="deepseek-v4-pro",
+    temperature=0.7,
 )
 
 supervisor_llm = qwen_model.with_structured_output(RouteDecision)

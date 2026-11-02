@@ -7,6 +7,7 @@ AgentName = Literal["ingestion", "quant", "qualitative", "reviewer", "writer", "
 TaskStatus = Literal["pending", "done", "failed"]
 MAX_RETRY = 3
 WORKERS = [a for a in get_args(AgentName) if a != "FINISH"]
+PIPELINE = ["ingestion", "quant", "qualitative", "reviewer", "writer"]
 
 
 class Task(BaseModel):
