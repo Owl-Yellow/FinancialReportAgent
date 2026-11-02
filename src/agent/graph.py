@@ -19,21 +19,22 @@ def route(state: AgentState) -> str:
     return state.next_agent
 
 builder.add_edge(START, "supervisor")
-builder.add_conditional_edges("supervisor", route, WORKERS+[END])
+builder.add_conditional_edges("supervisor", route, WORKERS + [END])
 for name in WORKERS:
     builder.add_edge(name, "supervisor")
 
 graph = builder.compile()
 
 
-def run_report(pdf_filename: str, request: str = "分析这份财报，重点看现金流质量") -> str | None:
+def run_report(pdf_filename: str,
+               request: str = "分析这份财报，重点看现金流质量") -> str | None:
     result = graph.invoke(
         {
             "messages": [HumanMessage(content=request)],
             "user_request": request,
             "input_files": [pdf_filename],
         },
-        config={"recursion_limit": 20},
+        config={"recursion_limit": 30},   # ★ 每轮 supervisor+worker 占 2 步，10 轮需 20+，留余量
     )
     return result.get("files", {}).get("final_report.md")
 

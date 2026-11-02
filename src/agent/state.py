@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 AgentName = Literal["ingestion", "quant", "qualitative", "reviewer", "writer", "FINISH"]
 TaskStatus = Literal["pending", "done", "failed"]
 MAX_RETRY = 3
-WORKERS = [a for a in get_args(AgentName) if a != "FINISH"]  # 自动推导
+WORKERS = [a for a in get_args(AgentName) if a != "FINISH"]
+
 
 class Task(BaseModel):
     id: str
@@ -28,9 +29,9 @@ class RouteDecision(BaseModel):
 class AgentState(BaseModel):
     messages: Annotated[list, add_messages]
     user_request: str
-    input_files: list[str] = []       # 用户提供的输入文件名，
+    input_files: list[str] = []
     files: dict[str, str] = {}        # 共享虚拟文件系统（内存）
-    tasks: list[Task] = []            #Task list
+    tasks: list[Task] = []
     next_agent: str = ""
     iteration: int = 0
     max_iterations: int = 10

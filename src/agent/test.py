@@ -1,7 +1,10 @@
-from agent.state import AgentState, AgentName
-from langgraph.graph import StateGraph, START, END
+from importlib.metadata import version
+import langchain_core
+print("langchain-core:", langchain_core.__version__)
+print("langgraph:", version("langgraph"))
+print("langchain:", version("langchain"))
 
-a = AgentName
-b = a.add(END)
-print(b)
-
+from agent.tools import write_file
+schema = write_file.args_schema.model_json_schema()
+print("required:", schema.get("required"))
+print("properties:", list(schema.get("properties", {}).keys()))
