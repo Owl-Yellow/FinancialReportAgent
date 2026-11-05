@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 AgentName = Literal["ingestion", "quant", "qualitative", "reviewer", "writer", "FINISH"]
 TaskStatus = Literal["pending", "done", "failed"]
-MAX_RETRY = 3
+MAX_RETRY_ROUNDS = 2
 WORKERS = [a for a in get_args(AgentName) if a != "FINISH"]
 PIPELINE = ["ingestion", "quant", "qualitative", "reviewer", "writer"]
 
@@ -36,7 +36,7 @@ class AgentState(BaseModel):
     next_agent: str = ""
     iteration: int = 0
     max_iterations: int = 10
-
+    review_rounds: int = 0          # 打回轮数（全局预算）
 
 FILE_BY_AGENT = {
     "ingestion": "raw_report.txt",
