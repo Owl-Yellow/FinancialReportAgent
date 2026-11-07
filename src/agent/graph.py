@@ -60,9 +60,9 @@ def run_report(pdf_filename: str, request: str = "分析这份财报，重点看
 
         if state_snapshot.next and not is_retry:
             return graph.invoke(None, config)
-
-        if is_retry:
-            config["configurable"]["thread_id"] = f"{thread_id}-retry-{time.time()}"
+        else:
+            if is_retry:
+                config["configurable"]["thread_id"] = f"{thread_id}-retry-{time.time()}"
 
         result = graph.invoke(
             {
@@ -72,22 +72,23 @@ def run_report(pdf_filename: str, request: str = "分析这份财报，重点看
             },
             config=config
         )
-    return result.get("files", {}).get("final_report.md")
 
-
-def main():
-    request = "分析这份财报，重点看现金流质量"
-    input_files = ["SMIC.pdf"]
-    report = run_report(input_files[0], request, is_retry=False)
-
+    report = result.get("files", {}).get("final_report.md")
     if report:
-        stem = Path(input_files[0]).stem
         out_dir = Path("output")
         out_dir.mkdir(exist_ok=True)
         out = out_dir / f"{stem}_report.md"
         out.write_text(report, encoding="utf-8")
         print(f"\n✅ 报告已导出: {out.resolve()}")
-    else:
+
+    return report
+
+
+def main():
+    request = "分析这份财报，重点看现金流质量"
+    input_files = ["GLM.pdf"]
+    report = run_report(input_files[0], request, is_retry=False)
+    if not report:
         print("\n❌ 未生成最终报告")
 
 

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>财报分析 Agent</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 860px;
+         margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px;
+          margin: 16px 0; }
+  select, textarea, button { font-size: 14px; padding: 8px 12px;
+          border-radius: 6px; border: 1px solid #ccc; }
+  button { background: #2563eb; color: #fff; border: none; cursor: pointer; }
+  button:disabled { background: #999; }
+  #log { background: #0d1117; color: #9fe8a8; font-family: monospace;
+         font-size: 12px; padding: 12px; border-radius: 6px;
+         height: 360px; overflow-y: auto; white-space: pre-wrap; }
+  #report { white-space: pre-wrap; line-height: 1.7; }
+  .status-running { color: #d97706; } .status-done { color: #16a34a; }
+  .status-failed { color: #dc2626; }
+</style>
+</head>
+
+<body>
+<h1>📊 财报分析 Agent</h1>
+
+<div class="card">
+  <p><select id="pdf"><option>加载中…</option></select></p>
+  <p><textarea id="request" rows="2" style="width:100%">分析这份财报，重点看现金流质量</textarea></p>
+  <button id="btn" onclick="start()">开始分析</button>
+  <span id="status"></span>
+</div>
+
+<div class="card" id="logcard" style="display:none">
+  <b>执行日志</b>
+  <div id="log"></div>
+</div>
+
+<div class="card" id="reportcard" style="display:none">
+  <b>最终报告</b>　<button onclick="download()">导出 .md</button>
+  <div id="report"></div>
+</div>
+
+<script>
+let jobId = null, logCount = 0, timer = null;
+
+fetch('/api/pdfs').then(r => r.json()).then(d => {
+  document.getElementById('pdf').innerHTML =
+    d.pdfs.map(p => `<option>${p}</option>`).join('');
+});
+
+async function start() {
+  const body = {
+    pdf_name: document.getElementById('pdf').value,
+    request: document.getElementById('request').value
+  };
+  const r = await fetch('/api/analyze', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  jobId = d.job_id; logCount = 0;
+  document.getElementById('btn').disabled = true;
+  document.getElementById('logcard').style.display = '';
+  document.getElementById('reportcard').style.display = 'none';
+  document.getElementById('log').textContent = '';
+  timer = setInterval(poll, 1500);
+}
+
+async function poll() {
+  const r = await fetch(`/api/jobs/${jobId}?after=${logCount}`);
+  const d = await r.json();
+  const logEl = document.getElementById('log');
+  d.log_lines.forEach(l => { logEl.textContent += l + '\n'; });
+  logCount = d.log_total;
+  logEl.scrollTop = logEl.scrollHeight;
+  const st = document.getElementById('status');
+  st.textContent = d.status; st.className = 'status-' + d.status;
+  if (d.status === 'done' || d.status === 'failed') {
+    clearInterval(timer);
+    document.getElementById('btn').disabled = false;
+    if (d.report) {
+      document.getElementById('reportcard').style.display = '';
+      document.getElementById('report').textContent = d.report;
+    }
+    if (d.error) st.textContent += ' — ' + d.error;
+  }
+}
+
+function download() { location.href = `/api/jobs/${jobId}/report`; }
+</script>
+</body>
+</html>

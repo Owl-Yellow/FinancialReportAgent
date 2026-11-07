@@ -29,14 +29,15 @@ class RouteDecision(BaseModel):
 
 class AgentState(BaseModel):
     messages: Annotated[list, add_messages]
-    user_request: str
+    user_request: str = ""                    # 默认值：首轮 invoke 已传，续跑时防缺键
     input_files: list[str] = []
-    files: dict[str, str] = {}        # 共享虚拟文件系统（内存）
-    tasks: list[Task] = []
+    files: dict[str, str] = {}                # 共享虚拟文件系统（内存）—— 唯一真相
+    retry_counts: dict[str, int] = {}         # 替换原 tasks: list[Task]
     next_agent: str = ""
     iteration: int = 0
-    max_iterations: int = 10
-    review_rounds: int = 0          # 打回轮数（全局预算）
+    max_iterations: int = 20
+    review_rounds: int = 0                    # 打回轮数（全局预算）
+
 
 FILE_BY_AGENT = {
     "ingestion": "raw_report.txt",
@@ -45,4 +46,19 @@ FILE_BY_AGENT = {
     "reviewer": "notes/review.md",
     "writer": "final_report.md",
 }
+
+REJECTED_STAGES = ("quant", "qualitative", "reviewer")
+
+REJECTED_FILES = {"notes/quant.md", "notes/qualitative.md", "notes/review.md"}
+
+PIPELINE_FILES = [(s, FILE_BY_AGENT[s]) for s in PIPELINE]
+
 AGENT_BY_FILE = {v: k for k, v in FILE_BY_AGENT.items()}
+
+
+def derive_tasks(files: dict[str, str], retry_counts: dict[str, int]) -> list[dict]:
+    """派生视图：展示/审计用，不在 state 里维护。"""
+    return [
+        {"stage": s, "file": f, "done": f in files, "retries": retry_counts.get(s, 0)}
+        for s, f in PIPELINE_FILES
+    ]
