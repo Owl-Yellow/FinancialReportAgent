@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from agent.state import AgentState, Task, FILE_BY_AGENT, PIPELINE, MAX_RETRY_ROUNDS, PIPELINE_FILES, derive_tasks, \
     REJECTED_FILES, REJECTED_STAGES
 
@@ -76,10 +78,37 @@ def worker_node(agent_name: str, agent):
                      if expected_file else "(无指定产物)")
 
         workspace = dict(state.files)
-        existing = "\n\n".join(
-            f"=== 文件: {k} ===\n{v[:12000]}"
-            for k, v in workspace.items()
-        ) or "(空)"
+
+        workspace = dict(state.files)
+
+        # ── RAG：按环节意图检索原文 ──
+        stem = Path(state.input_files[0]).stem if state.input_files else ""
+        hint = {
+            "quant":       "经营活动现金流 净利润 营业收入 应收账款 资产负债",
+            "qualitative": "风险因素 管理层讨论 行业竞争 业务模式 商誉",
+            "reviewer":    "现金流量表 经营活动 盈利 风险 应收账款",
+            "writer":      "经营活动现金流 净利润 营业收入 风险提示",
+        }.get(agent_name)
+        rag_ctx = ""
+        if hint and stem:
+            from agent.rag import STORE
+            hits = STORE.retrieve(stem, hint, k=8)
+            if hits:
+                rag_ctx = ("\n\n=== 财报原文关键段落（检索）===\n"
+                           + "\n---\n".join(hits))
+
+        parts = []
+        for k, v in workspace.items():
+            if k == "raw_report.txt" and rag_ctx:
+                parts.append(f"=== 文件: {k}（相关段落见下方检索区）===\n{v[:2000]}")
+            else:
+                parts.append(f"=== 文件: {k} ===\n{v[:12000]}")
+        existing = ("\n\n".join(parts) or "(空)") + rag_ctx
+
+        # existing = "\n\n".join(
+        #     f"=== 文件: {k} ===\n{v[:12000]}"
+        #     for k, v in workspace.items()
+        # ) or "(空)"
 
         result = agent.invoke({"messages": [("user",
             f"用户需求: {state.user_request}\n"

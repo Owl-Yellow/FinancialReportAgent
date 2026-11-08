@@ -1,6 +1,7 @@
 from pathlib import Path
 import pdfplumber
 from langchain_core.tools import tool
+from agent.rag import STORE
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -23,6 +24,9 @@ def parse_report(pdf_path: str) -> str:
     text = "\n".join(parts)
     if not text.strip():
         return "错误: PDF 无可提取文本（可能是扫描件，需要 OCR）"
+
+    STORE.build(Path(pdf_path).stem, text)
+
     return text[:20000]
 
 

@@ -86,7 +86,7 @@ def run_report(pdf_filename: str, request: str = "分析这份财报，重点看
 
 def main():
     request = "分析这份财报，重点看现金流质量"
-    input_files = ["GLM.pdf"]
+    input_files = ["CX.pdf"]
     report = run_report(input_files[0], request, is_retry=False)
     if not report:
         print("\n❌ 未生成最终报告")
