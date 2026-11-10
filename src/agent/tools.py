@@ -36,5 +36,5 @@ def write_file(path: str, content: str) -> str:
     调用成功后内容即生效，返回写入确认。"""
     if path.startswith("/") or ".." in path:
         return f"错误: 非法路径 {path}，拒绝写入"
-    # 纯回执：真正落盘由 worker_node 从 tool_calls 记录中提取
+    # 纯回执：真正写入文件由 worker_node 从 tool_calls 记录中提取
     return f"已写入 {path}（{len(content)} 字符）"

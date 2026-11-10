@@ -20,7 +20,7 @@ retry_policy=RetryPolicy(
     jitter=True,
 )
 
-
+# route to the next working agent by next_agent from state
 def route(state: AgentState) -> str:
     if state.next_agent == "FINISH" or state.iteration >= state.max_iterations:
         return END
@@ -79,7 +79,7 @@ def run_report(pdf_filename: str, request: str = "分析这份财报，重点看
         out_dir.mkdir(exist_ok=True)
         out = out_dir / f"{stem}_report.md"
         out.write_text(report, encoding="utf-8")
-        print(f"\n✅ 报告已导出: {out.resolve()}")
+        print(f"\n>>> 报告已导出: {out.resolve()}")
 
     return report
 
@@ -89,7 +89,7 @@ def main():
     input_files = ["CX.pdf"]
     report = run_report(input_files[0], request, is_retry=False)
     if not report:
-        print("\n❌ 未生成最终报告")
+        print("\n>>> 未生成最终报告")
 
 
 if __name__ == "__main__":

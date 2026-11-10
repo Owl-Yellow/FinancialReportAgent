@@ -32,7 +32,7 @@ class AgentState(BaseModel):
     user_request: str = ""                    # 默认值：首轮 invoke 已传，续跑时防缺键
     input_files: list[str] = []
     files: dict[str, str] = {}                # 共享虚拟文件系统（内存）—— 唯一真相
-    retry_counts: dict[str, int] = {}         # 替换原 tasks: list[Task]
+    retry_counts: dict[str, int] = {}
     next_agent: str = ""
     iteration: int = 0
     max_iterations: int = 20
